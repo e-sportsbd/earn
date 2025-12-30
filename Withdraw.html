@@ -5,8 +5,10 @@
 <title>Withdraw</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
+<!-- Telegram WebApp -->
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 
+<!-- Firebase -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
 import {
@@ -19,83 +21,120 @@ import {
   increment
 } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
 
-/* ===== FIREBASE ===== */
+/* ============ TELEGRAM ============ */
+const tg = Telegram.WebApp;
+tg.ready();
+tg.expand();
+
+const tgUser = tg.initDataUnsafe?.user;
+if(!tgUser){
+  document.body.innerHTML = "<h2 style='text-align:center;margin-top:60px'>Telegram user not found</h2>";
+  throw new Error("No Telegram User");
+}
+const uid = String(tgUser.id);
+
+/* ============ FIREBASE ============ */
 const firebaseConfig = {
   apiKey: "AIzaSyBl0PIm4lvZea96Bte3KaKQJvurGE1P8Es",
-            authDomain: "noreply@post-c7e41.firebaseapp.com",
-            databaseURL: "https://post-c7e41-default-rtdb.firebaseio.com",
-            projectId: "post-c7e41",
-            messagingSenderId: "758133068153",
-            appId: "1:758133068153:web:28ef27e45d8037e0d49fa8"
+  projectId: "post-c7e41",
+  appId: "1:758133068153:web:28ef27e45d8037e0d49fa8"
 };
+
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-/* ===== TELEGRAM ===== */
-const tg = Telegram.WebApp;
-tg.ready();
-const user = tg.initDataUnsafe.user;
-const uid = String(user.id);
-
-/* ===== GLOBAL ===== */
+/* ============ GLOBAL ============ */
 let CONFIG = {};
 let USER = {};
 
-/* ===== LOAD DATA ===== */
+/* ============ LOAD DATA ============ */
 async function loadData(){
-  const cfgSnap = await getDoc(doc(db,"admin_config","withdraw"));
-  CONFIG = cfgSnap.data();
+  try{
+    /* Admin config */
+    const cfgSnap = await getDoc(doc(db,"admin_config","withdraw"));
+    if(!cfgSnap.exists()){
+      showError("Withdraw system not configured");
+      return;
+    }
+    CONFIG = cfgSnap.data();
 
-  const userSnap = await getDoc(doc(db,"users",uid));
-  USER = userSnap.data();
+    if(CONFIG.withdrawEnabled === false){
+      showError("Withdraw is currently disabled");
+      return;
+    }
 
-  document.getElementById("rules").innerHTML = `
-    💰 Coin Rate: 1 Coin = ৳${CONFIG.coinRate}<br>
-    🔻 Minimum: ${CONFIG.minWithdrawCoins} coins<br>
-    🔺 Maximum: ${CONFIG.maxWithdrawCoins} coins<br>
-    👥 Minimum Invites: ${CONFIG.minInvites}<br>
-    💼 Balance: ${USER.balance} coins
-  `;
+    /* User data */
+    const userSnap = await getDoc(doc(db,"users",uid));
+    if(!userSnap.exists()){
+      showError("User account not found");
+      return;
+    }
+
+    USER = userSnap.data();
+    USER.balance = USER.balance || 0;
+    USER.totalInvites = USER.totalInvites || 0;
+
+    /* Show rules */
+    rules.innerHTML = `
+      💰 Coin Rate: 1 Coin = ৳${CONFIG.coinRate}<br>
+      🔻 Minimum Withdraw: ${CONFIG.minWithdrawCoins} coins<br>
+      🔺 Maximum Withdraw: ${CONFIG.maxWithdrawCoins} coins<br>
+      👥 Minimum Invites: ${CONFIG.minInvites}<br>
+      💼 Your Balance: ${USER.balance} coins
+    `;
+
+    /* Load payment methods */
+    methodSel.innerHTML = `<option value="">Select</option>`;
+    if(CONFIG.bkashEnabled) methodSel.innerHTML += `<option value="Bkash">Bkash</option>`;
+    if(CONFIG.nagadEnabled) methodSel.innerHTML += `<option value="Nagad">Nagad</option>`;
+
+  }catch(err){
+    console.error(err);
+    showError("Failed to load withdraw data");
+  }
 }
 loadData();
 
-/* ===== LIVE CALCULATION ===== */
-window.calcTaka = ()=>{
-  const coins = Number(document.getElementById("amount").value);
-  const view = document.getElementById("liveTaka");
+/* ============ HELPERS ============ */
+function showError(msg){
+  document.body.innerHTML = `
+    <h2 style="text-align:center;margin-top:70px;color:#ff6b6b">
+      ❌ ${msg}
+    </h2>`;
+}
 
+window.calcTaka = ()=>{
+  const coins = Number(amount.value);
   if(!coins || coins <= 0){
-    view.innerHTML = "💡 Enter coins to see taka";
+    liveTaka.innerHTML = "💡 Enter coins to see taka";
     return;
   }
-
-  const taka = coins * CONFIG.coinRate;
-  view.innerHTML = `💵 You will get <b>৳${taka}</b>`;
+  liveTaka.innerHTML = `💵 You will receive <b>৳${coins * CONFIG.coinRate}</b>`;
 };
 
-/* ===== WITHDRAW ===== */
+/* ============ WITHDRAW ============ */
 window.withdraw = async ()=>{
-  const coins = Number(document.getElementById("amount").value);
-  const method = document.getElementById("method").value;
-  const account = document.getElementById("account").value;
+  const coins = Number(amount.value);
+  const method = methodSel.value;
+  const account = accountInp.value.trim();
 
   if(!coins || !method || !account){
-    alert("⚠️ All fields required");
+    tg.showAlert("⚠️ All fields are required");
     return;
   }
 
   if(coins < CONFIG.minWithdrawCoins || coins > CONFIG.maxWithdrawCoins){
-    alert("⚠️ Invalid withdraw amount");
+    tg.showAlert("⚠️ Withdraw amount out of limit");
     return;
   }
 
   if(USER.totalInvites < CONFIG.minInvites){
-    alert("⚠️ Not enough invites");
+    tg.showAlert("⚠️ Not enough invites");
     return;
   }
 
   if(USER.balance < coins){
-    alert("⚠️ Insufficient balance");
+    tg.showAlert("⚠️ Insufficient balance");
     return;
   }
 
@@ -115,14 +154,9 @@ window.withdraw = async ()=>{
     balance: increment(-coins)
   });
 
-  alert(`✅ Withdraw Requested\n৳${taka} will be sent`);
-  tg.close();
+  tg.showAlert(`✅ Withdraw request submitted\n৳${taka}`);
+  setTimeout(()=>tg.close(),1500);
 };
-
-function watchAd1(){location.href="index.html";}
-function watchAd2(){location.href=".html";}
-function watchAd3(){location.href="Invite.html.html";}
-function watchAd4(){location.href="Withdraw.html";}
 </script>
 
 <style>
@@ -136,15 +170,13 @@ body{background:#0b0f1a;color:#fff}
   border-radius:18px;
   padding:16px
 }
-
 .card h2{
   font-size:18px;
   margin-bottom:10px;
-  border-bottom:2px solid transparent;
+  border-bottom:2px solid;
   border-image:linear-gradient(90deg,#6a5cff,#2ec7ff) 1;
   padding-bottom:6px
 }
-
 .info{
   background:#181f3a;
   border-radius:12px;
@@ -152,33 +184,24 @@ body{background:#0b0f1a;color:#fff}
   font-size:13px;
   margin-bottom:12px
 }
-
 .live{
   margin-top:8px;
   background:#0f1428;
   border:1px dashed #2ec7ff;
   padding:10px;
   border-radius:12px;
-  font-size:14px;
   text-align:center
 }
-
-label{
-  font-size:14px;
-  margin-top:12px;
-  display:block
-}
-
+label{margin-top:12px;display:block;font-size:14px}
 input,select{
   width:100%;
   padding:14px;
+  margin-top:6px;
   border-radius:14px;
-  border:1px solid #2b335a;
   background:#0f1428;
-  color:#fff;
-  margin-top:6px
+  border:1px solid #2b335a;
+  color:#fff
 }
-
 .btn{
   width:100%;
   padding:15px;
@@ -190,6 +213,7 @@ input,select{
   font-size:16px
 }
 
+/* NAV */
 .nav{
   position:fixed;
   bottom:0;
@@ -206,37 +230,33 @@ input,select{
 </head>
 
 <body>
+
 <div class="app">
+  <div class="card">
+    <h2>Withdraw Funds</h2>
+    <div class="info" id="rules">Loading...</div>
 
-<div class="card">
-  <h2>Withdraw Funds</h2>
-  <div class="info" id="rules">Loading...</div>
+    <label>Amount (Coins)</label>
+    <input id="amount" type="number" placeholder="Enter coin amount" oninput="calcTaka()">
 
-  <label>Amount (Coins)</label>
-  <input type="number" id="amount" placeholder="Enter coin amount" oninput="calcTaka()">
+    <div class="live" id="liveTaka">💡 Enter coins to see taka</div>
 
-  <div class="live" id="liveTaka">💡 Enter coins to see taka</div>
+    <label>Withdrawal Method</label>
+    <select id="methodSel"></select>
 
-  <label>Withdrawal Method</label>
-  <select id="method">
-    <option value="">Select</option>
-    <option>Bkash</option>
-    <option>Nagad</option>
-  </select>
+    <label>Account Number</label>
+    <input id="accountInp" type="text" placeholder="01XXXXXXXXX">
 
-  <label>Account Number</label>
-  <input type="text" id="account" placeholder="01XXXXXXXXX">
-
-  <button class="btn" onclick="withdraw()">🚀 Withdraw Now</button>
-</div>
-
+    <button class="btn" onclick="withdraw()">🚀 Withdraw Now</button>
+  </div>
 </div>
 
 <div class="nav">
-  <span  onclick="watchAd1()">Home</span>
-  <span onclick="watchAd2()">Tasks</span>
-  <span onclick="watchAd3()">Invite</span>
-  <span class="active" onclick="watchAd4()">Withdraw</span>
+  <span onclick="location.href='index.html'">Home</span>
+  <span onclick="location.href='tasks.html'">Tasks</span>
+  <span onclick="location.href='invite.html'">Invite</span>
+  <span class="active">Withdraw</span>
 </div>
+
 </body>
 </html>

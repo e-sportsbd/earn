@@ -57,6 +57,7 @@ body{background:#0b0f1a;color:#fff}
 </head>
 
 <body>
+
 <div class="app">
 
 <div class="user-box">
@@ -73,7 +74,7 @@ body{background:#0b0f1a;color:#fff}
 </div>
 
 <div class="card">
-  <h3>⚡ Quick Ads <span class="reward">+30 SHIB</span></h3>
+  <h3>⚡ Watch Ads <span class="reward">+30 SHIB</span></h3>
 
   <div class="progress">
     Daily: <b id="daily">0/30</b>
@@ -91,64 +92,66 @@ body{background:#0b0f1a;color:#fff}
 </div>
 
 <div class="nav">
-  <span class="active" onclick="watchAd1()">Home</span>
-  <span onclick="watchAd2()">Tasks</span>
-  <span onclick="watchAd3()">Invite</span>
-  <span onclick="watchAd4()">Withdraw</span>
+  <span class="active">Home</span>
+  <span onclick="location.href='tasks.html'">Tasks</span>
+  <span onclick="location.href='invite.html'">Invite</span>
+  <span onclick="location.href='withdraw.html'">Withdraw</span>
 </div>
 
 <script>
-function watchAd1(){location.href="index.html";}function watchAd2(){location.href=".html";}function watchAd3(){location.href="Invite.html";}function watchAd4(){location.href="Withdraw.html";}
-/* ========== TELEGRAM ========== */
+/* ================= TELEGRAM ================= */
 const tg = Telegram.WebApp;
-tg.ready();
+tg.ready(); tg.expand();
+
 const user = tg.initDataUnsafe.user;
 if(!user){ tg.close(); }
 
-/* ========== FIREBASE ========== */
+/* ================= FIREBASE CONFIG ================= */
+/* 🔴 এখানে নিজের Firebase config বসাবে */
 firebase.initializeApp({
-  apiKey: "AIzaSyBl0PIm4lvZea96Bte3KaKQJvurGE1P8Es",
-            authDomain: "noreply@post-c7e41.firebaseapp.com",
-            databaseURL: "https://post-c7e41-default-rtdb.firebaseio.com",
-            projectId: "post-c7e41",
-            messagingSenderId: "758133068153",
-            appId: "1:758133068153:web:28ef27e45d8037e0d49fa8"
+  apiKey: "PASTE_API_KEY",
+  authDomain: "PROJECT_ID.firebaseapp.com",
+  databaseURL: "https://PROJECT_ID-default-rtdb.firebaseio.com",
+  projectId: "PROJECT_ID",
+  appId: "APP_ID"
 });
 const db = firebase.database();
 
-/* ========== ADMIN SETTINGS ========== */
+/* ================= ADMIN ================= */
 const ADMIN = {
+  reward: 30,
   dailyLimit: 30,
   hourlyLimit: 10
 };
 
-/* ========== USER ========== */
-const uid = user.id;
-const userRef = db.ref("users/" + uid);
+/* ================= USER ================= */
+const uidVal = user.id;
+const userRef = db.ref("users/"+uidVal);
 
-/* ========== UI INFO ========== */
+/* UI SET */
 name.innerText = user.first_name || "User";
 username.innerText = user.username ? "@"+user.username : "No username";
-uid.innerText = "ID: " + uid;
+uid.innerText = "ID: "+uidVal;
 if(user.photo_url) photo.src = user.photo_url;
 
-/* ========== LOAD USER ========== */
+/* ================= LOAD USER ================= */
 userRef.once("value", snap=>{
   if(!snap.exists()){
     userRef.set({
       balance:0,
       dailyDone:0,
-      hourlyDone:0
+      hourlyDone:0,
+      lastHour:new Date().getHours()
     });
     updateUI(0,0,0);
   }else{
-    const d = snap.val();
-    updateUI(d.balance, d.dailyDone, d.hourlyDone);
+    const d = snap.val() || {};
+    updateUI(d.balance||0,d.dailyDone||0,d.hourlyDone||0);
   }
 });
 
-/* ========== UPDATE UI ========== */
-function updateUI(b,d,h){
+/* ================= UI ================= */
+function updateUI(b=0,d=0,h=0){
   balance.innerText = b;
   daily.innerText = d+"/"+ADMIN.dailyLimit;
   hourly.innerText = h+"/"+ADMIN.hourlyLimit;
@@ -156,10 +159,17 @@ function updateUI(b,d,h){
   hourlyBar.style.width = (h/ADMIN.hourlyLimit)*100+"%";
 }
 
-/* ========== WATCH AD CLICK ========== */
+/* ================= WATCH AD ================= */
 watchBtn.onclick = ()=>{
   userRef.once("value", snap=>{
-    const d = snap.val();
+    let d = snap.val() || {};
+
+    let hour = new Date().getHours();
+    if(d.lastHour !== hour){
+      d.hourlyDone = 0;
+      d.lastHour = hour;
+    }
+
     if(d.dailyDone >= ADMIN.dailyLimit){
       tg.showAlert("❌ Daily limit finished");
       return;
@@ -169,8 +179,17 @@ watchBtn.onclick = ()=>{
       return;
     }
 
-    // ✅ LIMIT OK → OPEN VIDEO PAGE
-    tg.openLink("https://yourdomain.com/video.html");
+    let newBal = (d.balance||0) + ADMIN.reward;
+
+    userRef.update({
+      balance:newBal,
+      dailyDone:(d.dailyDone||0)+1,
+      hourlyDone:(d.hourlyDone||0)+1,
+      lastHour:hour
+    });
+
+    updateUI(newBal,(d.dailyDone||0)+1,(d.hourlyDone||0)+1);
+    tg.showAlert("✅ +30 SHIB Added");
   });
 };
 </script>

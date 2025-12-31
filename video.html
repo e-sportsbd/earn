@@ -1,199 +1,152 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="bn">
 <head>
 <meta charset="UTF-8">
-<title>Watch Ad</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>বিজ্ঞাপন দেখুন</title>
 
-<!-- Telegram WebApp -->
+<!-- Telegram -->
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
+
 <style>
-*{margin:0;padding:0;box-sizing:border-box;font-family:Arial,sans-serif}
-body{
-  background:#0b0f1a;
-  color:#fff;
-  height:100vh;
-  display:flex;
-  justify-content:center;
-  align-items:center;
+html,body{
+  margin:0;padding:0;height:100%;width:100%;
+  font-family:Arial;
+  background:#f5f5f5;
+  display:flex;flex-direction:column;
 }
-.app{
-  width:100%;
-  max-width:420px;
-  height:100%;
-  background:#12172a;
-  border-radius:18px;
-  border:1px solid #2b335a;
-  display:flex;
-  flex-direction:column;
-  overflow:hidden;
-}
-.header{
+h3{
   background:#feca2a;
-  color:#000;
   text-align:center;
-  padding:10px;
-  font-weight:bold;
+  padding:6px;
+  margin:0;
 }
-iframe{
-  flex:1;
-  border:none;
-  background:#000;
-}
-.controls{
-  padding:12px;
-  text-align:center;
-}
-#timer{
-  font-size:26px;
-  color:#00ff9d;
-  margin-bottom:8px;
-}
-#progress{
-  font-size:14px;
-  margin-bottom:8px;
-}
-button{
+#iframe-container{flex:1;position:relative}
+iframe{width:100%;height:100%;border:none}
+#controls{
+  position:absolute;
+  bottom:0;
   width:100%;
-  padding:14px;
-  font-size:16px;
+  background:#fff;
+  padding:10px;
+  text-align:center;
+}
+#timer{font-size:22px;color:#008000;margin-bottom:6px}
+button{
+  padding:10px 20px;
+  font-size:18px;
   border:none;
-  border-radius:14px;
-  background:linear-gradient(135deg,#6a5cff,#2ec7ff);
+  border-radius:8px;
+  background:#0088cc;
   color:#fff;
 }
-button:disabled{opacity:.6}
-.note{
-  font-size:13px;
-  opacity:.7;
-  margin-top:6px;
-}
+button:disabled{background:gray}
 </style>
 </head>
 
 <body>
 
-<div class="app">
-  <div class="header">📺 Sponsored Advertisement</div>
+<div id="iframe-container">
+  <h3>সব Ads দেখুন এবং 200 Token পান</h3>
 
   <iframe id="adFrame"></iframe>
 
-  <div class="controls">
-    <div id="progress">Loading...</div>
-    <div id="timer">0</div>
+  <div id="controls">
+    <div id="timer">15</div>
     <button id="doneBtn" disabled>✅ Done</button>
-    <div class="note">সব বিজ্ঞাপন না দেখলে reward যোগ হবে না</div>
   </div>
 </div>
 
-<!-- ================= SCRIPT ================= -->
-<script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
-import { getFirestore, doc, updateDoc, increment } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+<script>
+/* ===== Telegram ===== */
+const tg = window.Telegram?.WebApp;
+if(tg) tg.ready();
+const userId = tg?.initDataUnsafe?.user?.id || "guest";
 
-/* ===== FIREBASE CONFIG ===== */
-const firebaseConfig = {
-  apiKey: "AIzaSyBl0PIm4lvZea96Bte3KaKQJvurGE1P8Es",
-            authDomain: "noreply@post-c7e41.firebaseapp.com",
-            databaseURL: "https://post-c7e41-default-rtdb.firebaseio.com",
-            projectId: "post-c7e41",
-            messagingSenderId: "758133068153",
-            appId: "1:758133068153:web:28ef27e45d8037e0d49fa8"
-};
+/* ===== Firebase ===== */
+firebase.initializeApp({
+  apiKey: "YOUR_API_KEY",
+  databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
+  projectId: "YOUR_PROJECT_ID",
+  appId: "YOUR_APP_ID"
+});
+const db = firebase.database();
 
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-
-/* ===== TELEGRAM ===== */
-const tg = Telegram.WebApp;
-tg.ready();
-
-const user = tg.initDataUnsafe.user;
-if(!user){
-  alert("Please open from Telegram");
-  tg.close();
-}
-const uid = String(user.id);
-
-/* ===== ADMIN CONTROL ===== */
-const ADS = [
+/* ===== ADS LIST (Adsgram) ===== */
+const ads = [
   "https://t.me/adsgram_ai?start=AD1",
   "https://t.me/adsgram_ai?start=AD2",
   "https://t.me/adsgram_ai?start=AD3"
 ];
 
-const SECONDS_PER_AD = 15;
-const REWARD_PER_AD = 30;
-const TOTAL_REWARD = ADS.length * REWARD_PER_AD;
+/* ===== CONFIG ===== */
+const secondsPerAd = 15;
+const totalReward = 200;
 
-/* ===== ELEMENTS ===== */
-const iframe = document.getElementById("adFrame");
-const timerEl = document.getElementById("timer");
-const progressEl = document.getElementById("progress");
-const doneBtn = document.getElementById("doneBtn");
-
-/* ===== STATE ===== */
-let index = 0;
-let seconds = SECONDS_PER_AD;
+let currentAd = 0;
+let timeLeft = secondsPerAd;
 let interval;
 
-/* ===== LOAD AD ===== */
+const adFrame = document.getElementById("adFrame");
+const timerEl = document.getElementById("timer");
+const doneBtn = document.getElementById("doneBtn");
+
+/* ===== START ADS ===== */
 function loadAd(){
-  if(index >= ADS.length){
-    progressEl.innerText = "✅ All Ads Completed";
-    timerEl.innerText = "Done";
+  if(currentAd >= ads.length){
+    timerEl.innerText = "✅ সব Ads শেষ";
     doneBtn.disabled = false;
     return;
   }
 
-  iframe.src = ADS[index];
-  progressEl.innerText = `Ad ${index + 1} of ${ADS.length}`;
-  seconds = SECONDS_PER_AD;
-  timerEl.innerText = seconds;
+  adFrame.src = ads[currentAd];
+  timeLeft = secondsPerAd;
+  timerEl.innerText = timeLeft;
 
   interval = setInterval(()=>{
-    seconds--;
-    timerEl.innerText = seconds;
-
-    if(seconds <= 0){
+    timeLeft--;
+    timerEl.innerText = timeLeft;
+    if(timeLeft <= 0){
       clearInterval(interval);
-      index++;
+      currentAd++;
       loadAd();
     }
   },1000);
 }
 
-/* ===== DONE CLICK ===== */
-doneBtn.onclick = async () => {
-  doneBtn.disabled = true;
+loadAd();
+
+/* ===== DONE BUTTON ===== */
+doneBtn.onclick = async ()=>{
+  const userRef = db.ref("users/"+userId+"/balance");
+
   try{
-    await updateDoc(doc(db,"users",uid),{
-      balance: increment(TOTAL_REWARD),
-      dailyDone: increment(1),
-      hourlyDone: increment(1),
-      lastAdTime: Date.now()
-    });
+    const snap = await userRef.get();
+    const balance = snap.exists() ? snap.val() : 0;
+    const newBal = balance + totalReward;
 
-    tg.showAlert(`🎉 ${TOTAL_REWARD} SHIB added`);
-    tg.openLink("https://yourdomain.com/index.html");
+    await userRef.set(newBal);
 
+    alert("🎉 200 Token যোগ হয়েছে!\nNew Balance: "+newBal);
+
+    if(tg){
+      tg.sendData("ads_verified");
+      tg.close();
+    }
   }catch(e){
-    alert("❌ Reward failed");
-    tg.close();
+    alert("❌ Token add failed");
   }
 };
 
 /* ===== ANTI CHEAT ===== */
-document.addEventListener("visibilitychange",()=>{
-  if(document.hidden){
-    alert("⚠️ Page leave করলে reward বাতিল");
-    tg.close();
-  }
+window.addEventListener("beforeunload", e=>{
+  e.preventDefault();
+  e.returnValue = "Ads শেষ না করলে token পাবেন না!";
 });
-
-/* ===== START ===== */
-loadAd();
 </script>
 
 </body>
